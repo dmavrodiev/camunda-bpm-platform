@@ -314,8 +314,6 @@ public class TransientVariableTest {
     runtimeService.startProcessInstanceByKey("testProcess");
     Task task = taskService.createTaskQuery().singleResult();
 
-    VariableMap formVariables = engineRule.getFormService().getTaskFormVariables(task.getId());
-    System.out.println(formVariables);
     // when
     Map<String, Object> formValues = new HashMap<String, Object>();
     formValues.put("stringField", Variables.stringValueTransient("foobar"));
