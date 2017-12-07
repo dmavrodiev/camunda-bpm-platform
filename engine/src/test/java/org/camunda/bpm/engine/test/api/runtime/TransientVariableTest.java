@@ -2,13 +2,17 @@ package org.camunda.bpm.engine.test.api.runtime;
 
 import static org.junit.Assert.*;
 import static org.camunda.bpm.engine.test.api.runtime.migration.models.ConditionalModels.*;
+import static org.hamcrest.CoreMatchers.containsString;
+
 import java.io.File;
 import java.net.URISyntaxException;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 
 import org.camunda.bpm.engine.HistoryService;
 import org.camunda.bpm.engine.ProcessEngineConfiguration;
+import org.camunda.bpm.engine.ProcessEngineException;
 import org.camunda.bpm.engine.RuntimeService;
 import org.camunda.bpm.engine.TaskService;
 import org.camunda.bpm.engine.delegate.DelegateExecution;
@@ -176,7 +180,7 @@ public class TransientVariableTest {
     assertEquals(true, processInstance.isEnded());
   }
 
-  @Ignore
+
   @Test
   public void testParallelProcessWithSetVariableTransientAfterReachingEventBasedGW() {
     BpmnModelInstance modelInstance =
@@ -190,6 +194,7 @@ public class TransientVariableTest {
           .intermediateCatchEvent()
           .conditionalEventDefinition()
           .condition(VAR_CONDITION)
+          .camundaVariableEvents(Arrays.asList("create", "update"))
           .conditionalEventDefinitionDone()
           .userTask()
           .name("taskAfter")
@@ -256,6 +261,19 @@ public class TransientVariableTest {
     assertEquals(0, variables.size());
 
     engineRule.getRepositoryService().deleteDeployment(deployment.getId(), true);
+  }
+
+  @Test
+  public void testTransientVariableOverridesPersistedVariable() {
+    testRule.deploy(ProcessModels.ONE_TASK_PROCESS);
+    runtimeService.startProcessInstanceByKey("Process", Variables.createVariables().putValue("foo", "bar"));
+    Execution execution = runtimeService.createExecutionQuery().singleResult();
+
+    try {
+      runtimeService.setVariable(execution.getId(), "foo", Variables.stringValueTransient("xyz"));
+    } catch (ProcessEngineException e) {
+      assertThat(e.getMessage(), containsString("Cannot set transient variable with name foo"));
+    }
   }
 
   public static class SetVariableTransientDelegate implements JavaDelegate {
