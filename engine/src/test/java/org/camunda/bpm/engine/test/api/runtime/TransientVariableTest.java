@@ -8,7 +8,9 @@ import java.io.File;
 import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.camunda.bpm.engine.HistoryService;
 import org.camunda.bpm.engine.ProcessEngineConfiguration;
@@ -16,8 +18,23 @@ import org.camunda.bpm.engine.ProcessEngineException;
 import org.camunda.bpm.engine.RuntimeService;
 import org.camunda.bpm.engine.TaskService;
 import org.camunda.bpm.engine.delegate.DelegateExecution;
+import org.camunda.bpm.engine.delegate.Expression;
 import org.camunda.bpm.engine.delegate.JavaDelegate;
+import org.camunda.bpm.engine.delegate.VariableScope;
+import org.camunda.bpm.engine.form.TaskFormData;
 import org.camunda.bpm.engine.history.HistoricVariableInstance;
+import org.camunda.bpm.engine.impl.bpmn.parser.BpmnParse;
+import org.camunda.bpm.engine.impl.el.ExpressionManager;
+import org.camunda.bpm.engine.impl.form.handler.DefaultTaskFormHandler;
+import org.camunda.bpm.engine.impl.form.handler.FormFieldHandler;
+import org.camunda.bpm.engine.impl.form.handler.FormFieldValidationConstraintHandler;
+import org.camunda.bpm.engine.impl.form.handler.TaskFormHandler;
+import org.camunda.bpm.engine.impl.form.type.AbstractFormFieldType;
+import org.camunda.bpm.engine.impl.form.type.FormTypes;
+import org.camunda.bpm.engine.impl.persistence.entity.DeploymentEntity;
+import org.camunda.bpm.engine.impl.persistence.entity.ProcessDefinitionEntity;
+import org.camunda.bpm.engine.impl.persistence.entity.TaskEntity;
+import org.camunda.bpm.engine.impl.util.xml.Element;
 import org.camunda.bpm.engine.repository.Deployment;
 import org.camunda.bpm.engine.runtime.CaseInstance;
 import org.camunda.bpm.engine.runtime.Execution;
@@ -34,6 +51,7 @@ import org.camunda.bpm.engine.test.util.ProcessEngineTestRule;
 import org.camunda.bpm.engine.test.util.ProvidedProcessEngineRule;
 import org.camunda.bpm.engine.variable.VariableMap;
 import org.camunda.bpm.engine.variable.Variables;
+import org.camunda.bpm.engine.variable.value.TypedValue;
 import org.camunda.bpm.model.bpmn.Bpmn;
 import org.camunda.bpm.model.bpmn.BpmnModelInstance;
 import org.junit.Before;
@@ -264,7 +282,7 @@ public class TransientVariableTest {
   }
 
   @Test
-  public void testTransientVariableOverridesPersistedVariable() {
+  public void testTransientVariableOvewritesPersistedVariableInSameScope() {
     testRule.deploy(ProcessModels.ONE_TASK_PROCESS);
     runtimeService.startProcessInstanceByKey("Process", Variables.createVariables().putValue("foo", "bar"));
     Execution execution = runtimeService.createExecutionQuery().singleResult();
@@ -274,6 +292,40 @@ public class TransientVariableTest {
     } catch (ProcessEngineException e) {
       assertThat(e.getMessage(), containsString("Cannot set transient variable with name foo"));
     }
+  }
+
+  @Test
+  public void testSameNamesDifferentScopes() {
+    testRule.deploy(ProcessModels.SUBPROCESS_PROCESS);
+    runtimeService.startProcessInstanceByKey("Process", Variables.createVariables().putValue("foo", "bar"));
+    Execution execution = runtimeService.createExecutionQuery().activityId(USER_TASK_ID).singleResult();
+
+    try {
+      runtimeService.setVariable(execution.getId(), "foo", Variables.stringValueTransient("xyz"));
+    } catch (ProcessEngineException e) {
+      assertThat(e.getMessage(), containsString("Cannot set transient variable with name foo"));
+    }
+  }
+
+  @Test
+  public void testFormFieldsWithCustomTransientFlags() {
+    // given
+    testRule.deploy("org/camunda/bpm/engine/test/api/form/FormServiceTest.taskFormFieldsWithTransientFlags.bpmn20.xml");
+    runtimeService.startProcessInstanceByKey("testProcess");
+    Task task = taskService.createTaskQuery().singleResult();
+
+    VariableMap formVariables = engineRule.getFormService().getTaskFormVariables(task.getId());
+    System.out.println(formVariables);
+    // when
+    Map<String, Object> formValues = new HashMap<String, Object>();
+    formValues.put("stringField", Variables.stringValueTransient("foobar"));
+    formValues.put("longField", 9L);
+    engineRule.getFormService().submitTaskForm(task.getId(), formValues);
+
+    // then
+    List<VariableInstance> variables = runtimeService.createVariableInstanceQuery().list();
+    assertEquals(1, variables.size());
+    assertEquals(variables.get(0).getValue(), 9L);
   }
 
   public static class SetVariableTransientDelegate implements JavaDelegate {
